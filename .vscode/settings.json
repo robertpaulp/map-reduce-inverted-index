@@ -2,6 +2,9 @@
     "files.associations": {
         "list": "cpp",
         "filesystem": "cpp",
-        "vector": "cpp"
+        "vector": "cpp",
+        "iosfwd": "cpp",
+        "xstring": "cpp",
+        "xtree": "cpp"
     }
 }
