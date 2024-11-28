@@ -2,32 +2,31 @@
 #include <vector>
 #include <iostream>
 #include <map>
+#include <list>
 #include <queue>
 #include <tuple>
 #include <string>
 #include <fstream>
 #include <sstream>
-#include <unordered_map>
 #include <algorithm>
+#include <unordered_map>
 
 using namespace std;
 
 class Compare {
-public:
-    bool operator()(const tuple<string, size_t, size_t>& a, const tuple<string, size_t, size_t>& b) {
+    public:
+        bool operator()(const tuple<string, size_t, size_t>& a, const tuple<string, size_t, size_t>& b) {
         return get<1>(a) > get<1>(b);
     }
 };
 
-struct thread_data {
+struct thread_data
+{
     priority_queue<tuple<string, size_t, size_t>, vector<tuple<string, size_t, size_t>>, Compare> *file_queue;
     pthread_mutex_t *mutex;
     pthread_barrier_t *barrier;
-    pthread_cond_t *cond;
-    vector<tuple<size_t, unordered_map<string, vector<size_t>>>> *partial_results;
     unordered_map<string, priority_queue<size_t, vector<size_t>, greater<size_t>>> *global_result;
     map <char, vector<tuple<string, vector<size_t>>>> *group_result;
-    bool *is_merged;
     int thread_id;
     int num_map_threads;
     int num_reduce_threads;
@@ -47,7 +46,7 @@ void remove_unwanted_chars(string &word) {
 }
 
 // Each thread will process a file and create a map of words
-unordered_map<string, size_t> map_function(tuple<string, size_t> file) {
+unordered_map<string, size_t>  map_function(tuple<string, size_t> file) {
     string line;
     unordered_map<string, size_t> local_result;
 
@@ -57,10 +56,12 @@ unordered_map<string, size_t> map_function(tuple<string, size_t> file) {
     ifstream fin(input_file);
 
     if (fin.is_open()) {
-        while (getline(fin, line)) {
+        while(getline(fin, line)) {
+
+            
             stringstream ss(line);
             vector<string> words;
-            string word;
+            string  word;
 
             // Create a vector of words
             while (ss >> word) {
@@ -84,7 +85,7 @@ unordered_map<string, size_t> map_function(tuple<string, size_t> file) {
     return local_result;
 }
 
-// Sort by frequency in files, if equal, sort lexicographically
+// Sort by freqency in files, if equal sort lexicographically
 bool sort_by_entry(const tuple<string, vector<size_t>> &a, const tuple<string, vector<size_t>> &b) {
     if (get<1>(a).size() == get<1>(b).size()) {
         return get<0>(a) < get<0>(b);
@@ -95,6 +96,8 @@ bool sort_by_entry(const tuple<string, vector<size_t>> &a, const tuple<string, v
 
 // Each thread will work on a specific range and create a global grouped map
 void reduce_function(thread_data *data) {
+
+    // Each thread will process a specific range of letters
     int start = (data->thread_id - data->num_map_threads) * 26 / data->num_reduce_threads;
     int end = min((data->thread_id - data->num_map_threads + 1) * 26 / data->num_reduce_threads, 26);
 
@@ -119,72 +122,55 @@ void reduce_function(thread_data *data) {
     }
 }
 
+
+
+
 void *thread_function(void *arg) {
     thread_data *data = (thread_data *)arg;
 
     if (data->thread_id < data->num_map_threads) {
-        unordered_map<string, vector<size_t>> thread_result;
+        // Map threads
 
-        while (true) {
+        while(true) {
             tuple<string, size_t> file;
 
+            // Get file from queue
             pthread_mutex_lock(data->mutex);
 
             if (data->file_queue->empty()) {
                 pthread_mutex_unlock(data->mutex);
                 break;
             } else {
-                tuple<string, size_t, size_t> file_tuple = data->file_queue->top();
+                tuple<string, size_t, size_t> file_tuple= data->file_queue->top();
                 file = make_tuple(get<0>(file_tuple), get<2>(file_tuple));
                 data->file_queue->pop();
                 pthread_mutex_unlock(data->mutex);
             }
 
+            // Process the file
             unordered_map<string, size_t> local_result = map_function(file);
 
-            // Add local results to thread's map
+            // Write the result to the global map
+            pthread_mutex_lock(data->mutex);
+
             for (auto &entry : local_result) {
-                thread_result[entry.first].push_back(entry.second);
+                if (data->global_result->find(entry.first) == data->global_result->end()) {
+                    (*data->global_result)[entry.first] = priority_queue<size_t, vector<size_t>, greater<size_t>>();
+                }
+
+                (*data->global_result)[entry.first].push(entry.second);
             }
+
+            pthread_mutex_unlock(data->mutex); 
         }
-
-        // Save thread's results
-        pthread_mutex_lock(data->mutex);
-        data->partial_results->push_back(make_tuple(data->thread_id, thread_result));
-        pthread_mutex_unlock(data->mutex);
-
 
         pthread_barrier_wait(data->barrier);
     } else {
+        // Reduce threads
         pthread_barrier_wait(data->barrier);
 
-        // Merge results from map phase into global_result
-        pthread_mutex_lock(data->mutex);
-
-        if (data->thread_id == data->num_map_threads) {
-            for (auto &entry : *data->partial_results) {
-                for (auto &local_entry : get<1>(entry)) {
-                    for (size_t file_id : local_entry.second) {
-                        (*data->global_result)[local_entry.first].push(file_id);
-                    }
-                }
-            }
-
-
-            *data->is_merged = true;
-            pthread_cond_broadcast(data->cond);
-        } else {
-            while (!(*data->is_merged)) {
-                pthread_cond_wait(data->cond, data->mutex);
-            }
-        }
-
-        pthread_mutex_unlock(data->mutex);
-
-        // Perform reduce operation
         reduce_function(data);
     }
-
     return NULL;
 }
 
@@ -197,16 +183,17 @@ size_t getFileSize(const string& filename) {
     return file.tellg();
 }
 
+
 // Parse the input file and return a queue of files sorted in ascending order by size
-priority_queue<tuple<string, size_t, size_t>, vector<tuple<string, size_t, size_t>>, Compare> get_files(string input_file) {
+priority_queue<tuple< string, size_t, size_t>, vector<tuple<string, size_t, size_t>>, Compare> get_files(string input_file) {
     priority_queue<tuple<string, size_t, size_t>, vector<tuple<string, size_t, size_t>>, Compare> file_list;
     string line;
     size_t id = 1;
     ifstream fin(input_file);
 
     if (fin.is_open()) {
-        getline(fin, line); // Skip the first line
-        while (getline(fin, line)) {
+        getline(fin, line);
+        while(getline(fin, line)) {
             file_list.push(make_tuple(line, getFileSize(line), id));
             id++;
         }
@@ -226,10 +213,16 @@ void write_output(map <char, vector<tuple<string, vector<size_t>>>> &group_resul
                 fout << get<0>(entry) << ":[";
 
                 for (size_t file_id : get<1>(entry)) {
-                    fout << file_id << " ";
+                    if (file_id != get<1>(entry).back()) {
+                        fout << file_id << " ";
+                    } else {
+                        fout << file_id;
+                    }
                 }
                 fout << "]" << endl;
             }
+        } else {
+            fout << endl;
         }
 
         fout.close();
@@ -253,7 +246,6 @@ int main(int argc, char **argv)
     priority_queue<tuple<string, size_t, size_t>, vector<tuple<string, size_t, size_t>>, Compare> file_queue = get_files(input_file);
 
     // Thread vars
-    vector<tuple<size_t, unordered_map<string, vector<size_t>>>> partial_results;
     map <char, vector<tuple<string, vector<size_t>>>> group_result;
     unordered_map<string, priority_queue<size_t, vector<size_t>, greater<size_t>>> global_result;  
     vector<pthread_t> threads(num_map_threads + num_reduce_threads);
@@ -265,10 +257,6 @@ int main(int argc, char **argv)
     pthread_barrier_t barrier;
     pthread_barrier_init(&barrier, NULL, num_map_threads + num_reduce_threads);
 
-    bool is_merged = false;
-    pthread_cond_t cond;
-    pthread_cond_init(&cond, NULL);
-
     // Create threads
     for (int i = 0; i < num_map_threads + num_reduce_threads; i++) {
 
@@ -276,12 +264,9 @@ int main(int argc, char **argv)
         thread_data_list[i].file_queue = &file_queue;
         thread_data_list[i].mutex = &mutex;
         thread_data_list[i].barrier = &barrier;
-        thread_data_list[i].cond = &cond;
-        thread_data_list[i].partial_results = &partial_results;
         thread_data_list[i].group_result = &group_result;
         thread_data_list[i].global_result = &global_result;
         thread_data_list[i].thread_id = i;
-        thread_data_list[i].is_merged = &is_merged;
         thread_data_list[i].num_map_threads = num_map_threads;
         thread_data_list[i].num_reduce_threads = num_reduce_threads;
 
