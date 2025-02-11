@@ -1,4 +1,15 @@
-build:
-		g++ main.cpp -o tema1 -lpthread
+CXX = g++
+CXXFLAGS = -Wall -lpthread -Iinclude
+
+SRC = main.cpp mappers.cpp reducers.cpp threading.cpp
+TARGET = map_reduce
+
+all: build
+
+build: $(TARGET)
+
+$(TARGET):
+	$(CXX) $(CXXFLAGS) $(SRC) -o $(TARGET)
+
 clean:
-		rm tema1
+	rm -f $(TARGET)

@@ -121,7 +121,7 @@ ls -lh
 make clean &> /dev/null
 make build &> build.txt
 
-if [ ! -f tema1 ]
+if [ ! -f map_reduce ]
 then
     echo "E: Nu s-a putut compila tema"
     cat build.txt
@@ -132,7 +132,7 @@ fi
 
 rm -rf build.txt
 
-mv tema1 ../checker
+mv map_reduce ../checker
 cd ../checker
 
 count=0
@@ -149,7 +149,7 @@ do
             # se creeaza directorul de output secvential
             mkdir -p test_sec
 
-            run_and_get_time "./tema1 $M $R ./test.txt > test_sec/out.txt"
+            run_and_get_time "./map_reduce $M $R ./test.txt > test_sec/out.txt"
             for x in {a..z}
             do
                 mv $x.txt test_sec 2>/dev/null
@@ -182,7 +182,7 @@ do
             mkdir -p test_par
 
             # se masoara timpii paraleli (pentru calculul acceleratiei)
-            run_par_and_measure ${times} "./tema1 $M $R ./test.txt > test_par/out.txt"
+            run_par_and_measure ${times} "./map_reduce $M $R ./test.txt > test_par/out.txt"
             for x in {a..z}
             do
                 mv $x.txt test_par 2>/dev/null
@@ -251,7 +251,7 @@ echo ""
 
 correctness=$((correct * 4))
 
-rm -rf tema1 &> /dev/null
+rm -rf map_reduce &> /dev/null
 cd ../src
 make clean &> /dev/null
 
